@@ -1,0 +1,71 @@
+server {
+	listen %ip%:%web_ssl_port% http2;
+	server_name %domain_idn% %alias_idn%;
+	root %sdocroot%/public;
+	index index.php index.html index.htm;
+	access_log /var/log/nginx/domains/%domain%.log combined;
+	access_log /var/log/nginx/domains/%domain%.bytes bytes;
+	error_log /var/log/nginx/domains/%domain%.error.log error;
+
+	resolver 8.8.8.8 valid=300s;
+	resolver_timeout 10s;
+
+	ssl on;
+	ssl_certificate %ssl_pem%;
+	ssl_certificate_key %ssl_key%;
+
+	# Comment to disable removal of www from URL
+	if ( $http_host = 'www.%domain_idn%' ) {
+		rewrite ^ https://%domain_idn%$request_uri? redirect;
+	}
+
+	# LetsEncrypt challenge
+	location /.well-known/acme-challenge {
+		default_type text/plain;
+		root /etc/letsencrypt/webroot;
+	}
+
+	location / {
+		try_files $uri $uri/ /index.php?$query_string;
+
+		location ~ [^/]\.php(/|$) {
+			fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+			fastcgi_pass %backend_lsnr%;
+			fastcgi_index index.php;
+			include /etc/nginx/fastcgi_params;
+
+			# Pteredactyl FastCGI Params
+			fastcgi_param PHP_VALUE "upload_max_filesize = 100M \n post_max_size=100M";
+			fastcgi_param HTTP_PROXY "";
+			fastcgi_intercept_errors off;
+			fastcgi_buffer_size 16k;
+			fastcgi_buffers 4 16k;
+			fastcgi_connect_timeout 300;
+			fastcgi_send_timeout 300;
+			fastcgi_read_timeout 300;
+		}
+	}
+
+	location ~* "/\.(htaccess|htpasswd)$" {
+		deny all;
+		return 404;
+	}
+
+	sendfile off;
+
+	client_max_body_size 100m;
+	client_body_timeout 120s;
+
+	# Pteredactyl Headers
+	add_header Strict-Transport-Security "max-age=15768000; preload;";
+	add_header X-Content-Type-Options nosniff;
+	add_header X-XSS-Protection "1; mode=block";
+	add_header X-Robots-Tag none;
+	add_header Content-Security-Policy "frame-ancestors 'self'";
+
+	include	/etc/nginx/conf.d/phpmyadmin.inc*;
+	include	/etc/nginx/conf.d/phppgadmin.inc*;
+	include	/etc/nginx/conf.d/webmail.inc*;
+
+	include	%home%/%user%/conf/web/snginx.%domain%.conf*;
+}
